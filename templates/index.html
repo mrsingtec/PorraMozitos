@@ -67,7 +67,7 @@
                     </button>
                     {% endfor %}
                   </div>
-                  <div><small class="text-warning countdown-close" data-close="{{ m.close_time }}">--:--:--</small></div>
+                  <div><small class="text-warning"><i class="bi bi-alarm"></i> <span class="countdown-close" data-close="{{ m.close_time }}">--:--:--</span></small></div>
                   {% elif m.is_blocked %}
                     <span class="text-muted small" title="Se desbloquea a las 23:30 del día anterior">🔒</span>
                   {% elif m.status == 'pending' %}

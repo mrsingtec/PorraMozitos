@@ -748,7 +748,9 @@ def admin_init():
     return render_template("admin_init.html")
 
 
+# Always init DB on import (needed for gunicorn)
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     port = int(os.environ.get("PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=True)

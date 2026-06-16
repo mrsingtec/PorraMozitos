@@ -804,6 +804,22 @@ def admin_init():
     return render_template("admin_init.html")
 
 
+@app.route("/admin/reset-db")
+def reset_db():
+    token = request.args.get("token", "")
+    if token != "reset123":
+        flash("Token inválido", "danger")
+        return redirect(url_for("login"))
+    with get_db() as db:
+        db.executescript("DROP TABLE IF EXISTS predictions")
+        db.executescript("DROP TABLE IF EXISTS matches")
+        db.executescript("DROP TABLE IF EXISTS users")
+    init_db()
+    logout_user()
+    flash("Base de datos reiniciada. Registra el primer usuario como admin.", "success")
+    return redirect(url_for("register"))
+
+
 # Always init DB on import (needed for gunicorn)
 init_db()
 

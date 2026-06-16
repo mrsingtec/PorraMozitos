@@ -476,6 +476,7 @@ def index():
         match_dict = dict(m)
         match_dict["is_open"] = is_open
         match_dict["is_blocked"] = is_blocked
+        match_dict["unlock_time"] = unlock_time.isoformat()
         match_dict["close_time"] = close_time.isoformat()
         match_dict["actual"] = match_result(m["home_score"], m["away_score"])
 

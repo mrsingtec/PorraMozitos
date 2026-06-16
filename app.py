@@ -428,21 +428,22 @@ TEAM_TRANSLATIONS = {
 
 
 def get_open_date():
-    """Return the first calendar date with incomplete matches."""
+    """Return the first calendar date whose deadline hasn't passed."""
     with get_db() as db:
-        dates = db.execute("""
-            SELECT substr(match_date,1,10) as d,
-                   SUM(CASE WHEN status='played' THEN 1 ELSE 0 END) as played,
-                   COUNT(*) as total
-            FROM matches GROUP BY d ORDER BY d
-        """).fetchall()
+        dates = db.execute(
+            "SELECT DISTINCT substr(match_date,1,10) as d FROM matches ORDER BY d"
+        ).fetchall()
 
     if not dates:
         return None
 
+    now = now_spain()
+
     for d in dates:
-        if d["played"] < d["total"]:
-            return d["d"]
+        day = d["d"]
+        deadline = get_day_deadline(day)
+        if not deadline or now < deadline:
+            return day
 
     return dates[-1]["d"]
 

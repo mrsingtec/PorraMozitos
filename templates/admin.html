@@ -125,40 +125,84 @@
   </div>
 </div>
 
-<!-- Modales para editar resultado -->
+<!-- Modales para editar resultado (AJAX) -->
 {% for match in matches %}
 <div class="modal fade" id="resultModal{{ match.id }}" tabindex="-1">
   <div class="modal-dialog modal-sm">
     <div class="modal-content bg-dark">
-      <form method="POST" action="{{ url_for('set_result', match_id=match.id) }}">
-        <div class="modal-header">
-          <h6 class="modal-title">{{ match.home_team }} vs {{ match.away_team }}</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          {% if match.status == 'played' %}
-          <p class="text-muted small">Actual: {{ match.home_score }} - {{ match.away_score }}</p>
-          {% endif %}
-          <div class="row g-2">
-            <div class="col-5">
-              <input type="number" name="home_score" class="form-control" placeholder="Local" min="0"
-                value="{{ match.home_score if match.home_score is not none else '' }}" required>
-            </div>
-            <div class="col-2 text-center pt-2">-</div>
-            <div class="col-5">
-              <input type="number" name="away_score" class="form-control" placeholder="Visit." min="0"
-                value="{{ match.away_score if match.away_score is not none else '' }}" required>
-            </div>
+      <div class="modal-header">
+        <h6 class="modal-title">{{ match.home_team }} vs {{ match.away_team }}</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if match.status == 'played' %}
+        <p class="text-muted small">Actual: <span id="current-{{ match.id }}">{{ match.home_score }} - {{ match.away_score }}</span></p>
+        {% endif %}
+        <div class="row g-2">
+          <div class="col-5">
+            <input type="number" id="hs-{{ match.id }}" class="form-control" placeholder="Local" min="0"
+              value="{{ match.home_score if match.home_score is not none else '' }}" required>
+          </div>
+          <div class="col-2 text-center pt-2">-</div>
+          <div class="col-5">
+            <input type="number" id="as-{{ match.id }}" class="form-control" placeholder="Visit." min="0"
+              value="{{ match.away_score if match.away_score is not none else '' }}" required>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-warning btn-sm w-100">Guardar resultado</button>
-        </div>
-      </form>
+      </div>
+      <div class="modal-footer">
+        <button onclick="saveResult({{ match.id }})" class="btn btn-warning btn-sm w-100">Guardar resultado</button>
+      </div>
     </div>
   </div>
 </div>
 {% endfor %}
+
+<script>
+function saveResult(matchId) {
+  const hs = document.getElementById('hs-' + matchId).value;
+  const as = document.getElementById('as-' + matchId).value;
+
+  const formData = new FormData();
+  formData.append('home_score', hs);
+  formData.append('away_score', as);
+
+  fetch('/api/admin/matches/' + matchId + '/result', {
+    method: 'POST', body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      const row = document.querySelector('tr:has(button[data-bs-target="#resultModal' + matchId + '"])');
+      if (row) {
+        const badge = row.querySelector('.badge');
+        if (badge) {
+          badge.className = 'badge bg-light text-dark';
+          badge.textContent = hs + ' - ' + as;
+        }
+      }
+      const modal = bootstrap.Modal.getInstance(document.getElementById('resultModal' + matchId));
+      if (modal) modal.hide();
+      showToast(data.message, 'success');
+    } else {
+      showToast(data.message, 'warning');
+    }
+  })
+  .catch(() => showToast('Error al guardar', 'danger'));
+}
+
+function showToast(msg, type) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast align-items-center text-bg-' + type + ' border-0 show';
+  toast.innerHTML = '<div class="d-flex"><div class="toast-body fw-bold">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+  container.appendChild(toast);
+  setTimeout(() => { toast.remove(); }, 3000);
+}
+</script>
+
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
 
 <a href="{{ url_for('index') }}" class="btn btn-outline-secondary mt-3">
   <i class="bi bi-arrow-left"></i> Volver a partidos

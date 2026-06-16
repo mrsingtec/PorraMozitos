@@ -692,6 +692,26 @@ def set_result(match_id):
     return redirect(url_for("admin_panel"))
 
 
+@app.route("/api/admin/matches/<int:match_id>/result", methods=["POST"])
+@login_required
+@admin_required
+def api_set_result(match_id):
+    home_score = request.form.get("home_score")
+    away_score = request.form.get("away_score")
+
+    if home_score == "" or away_score == "" or home_score is None or away_score is None:
+        return {"success": False, "message": "Introduce el resultado"}
+
+    with get_db() as db:
+        db.execute(
+            "UPDATE matches SET home_score = ?, away_score = ?, status = 'played' WHERE id = ?",
+            (int(home_score), int(away_score), match_id),
+        )
+        db.commit()
+
+    return {"success": True, "message": "Resultado actualizado ✅"}
+
+
 @app.route("/admin/matches/<int:match_id>/delete", methods=["POST"])
 @login_required
 @admin_required

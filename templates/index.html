@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0 text-white">Pronósticos</h4>
+  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()" title="Actualizar resultados">
+    ↻
+  </button>
 </div>
 
 {% if sorted_days|length == 0 %}
@@ -128,5 +131,8 @@ function showToast(msg, type) {
   container.appendChild(toast);
   setTimeout(() => { toast.remove(); }, 3000);
 }
+
+// Auto-refresh cada 30s para ver resultados actualizados
+setTimeout(() => location.reload(), 30000);
 </script>
 {% endblock %}

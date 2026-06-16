@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 import pytz
@@ -113,6 +113,20 @@ def parse_date(date_str):
     return datetime.strptime(date_str, "%Y-%m-%d %H:%M")
 
 
+def get_day_deadline(day_str):
+    """Deadline for a day: 1h before first match (Spanish time)."""
+    with get_db() as db:
+        first = db.execute(
+            "SELECT match_date FROM matches WHERE substr(match_date,1,10) = ? ORDER BY match_date ASC LIMIT 1",
+            (day_str,)
+        ).fetchone()
+    if not first:
+        return None
+    utc_dt = datetime.strptime(first["match_date"], "%Y-%m-%d %H:%M").replace(tzinfo=pytz.UTC)
+    spain_dt = utc_dt.astimezone(SPAIN_TZ)
+    return spain_dt - timedelta(hours=1)
+
+
 def match_result(home_score, away_score):
     if home_score is None or away_score is None:
         return None
@@ -203,8 +217,8 @@ def import_matches_from_api(competition_id="2000"):
             if not match_date:
                 continue
 
-            # Deadline = match day at 18:00 Spanish time
-            deadline = f"{match_date[:10]} 18:00"
+            # Deadline computed dynamically (see get_day_deadline); store placeholder
+            deadline = match_date
 
             # Check for existing match (by API match id to avoid dupes)
             api_id = m.get("id")
@@ -455,13 +469,12 @@ def index():
 
     matches_by_day = {}
     for m in rows:
-        deadline_dt = SPAIN_TZ.localize(parse_date(m["deadline"]))
         match_day = m["match_date"][:10]
         is_future_day = open_date is not None and match_day > open_date
-        is_open = (now < deadline_dt) and (m["status"] == "pending") and not is_future_day
+        is_open = (m["status"] == "pending") and not is_future_day
 
+        # will set deadline_dt below once we know day deadlines
         match_dict = dict(m)
-        match_dict["deadline_dt"] = deadline_dt
         match_dict["is_open"] = is_open
         match_dict["is_blocked"] = is_future_day
         match_dict["actual"] = match_result(m["home_score"], m["away_score"])
@@ -475,6 +488,21 @@ def index():
 
     sorted_days = sorted(matches_by_day.keys())
 
+    # Compute day deadlines and set is_open per match
+    day_deadlines = {}
+    for day in sorted_days:
+        dl = get_day_deadline(day)
+        if dl:
+            day_deadlines[day] = dl
+
+    for day, rounds in matches_by_day.items():
+        deadline = day_deadlines.get(day)
+        for r, matches in rounds.items():
+            for m in matches:
+                m["deadline_dt"] = deadline
+                if deadline:
+                    m["is_open"] = m["is_open"] and (now < deadline)
+
     # Determine which tab to show as active
     active_day = None
     if today_str in matches_by_day:
@@ -483,6 +511,13 @@ def index():
         active_day = open_date
     elif sorted_days:
         active_day = sorted_days[0]
+
+    # Next deadline for countdown (the open date's deadline)
+    next_deadline = None
+    if open_date and open_date in day_deadlines:
+        dl = day_deadlines[open_date]
+        if dl > now:
+            next_deadline = dl.isoformat()
 
     return render_template(
         "index.html",
@@ -493,6 +528,7 @@ def index():
         match_result=match_result,
         ROUNDS_LABEL=ROUNDS_LABEL,
         ROUNDS_ORDER=ROUNDS_ORDER,
+        next_deadline=next_deadline,
     )
 
 
@@ -516,10 +552,10 @@ def _do_predict(match_id, prediction):
         if not match:
             return {"success": False, "message": "Partido no encontrado"}
 
-        deadline = parse_date(match["deadline"])
-        deadline = SPAIN_TZ.localize(deadline)
+        day = match["match_date"][:10]
+        deadline = get_day_deadline(day)
 
-        if now > deadline:
+        if not deadline or now > deadline:
             return {"success": False, "message": "No has tenido tiempo llevando Inditex palante... ⏰"}
 
         db.execute(

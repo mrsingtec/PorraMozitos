@@ -1,0 +1,101 @@
+body {
+  background: #0b0e14;
+}
+
+.navbar {
+  box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+  background: linear-gradient(135deg, #0d1117 0%, #1a1f2e 100%) !important;
+  border-bottom: 2px solid #ffc107 !important;
+}
+.brand-title {
+  font-size: 1.3rem;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #fff 0%, #00e5ff 50%, #76ff03 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
+  filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.5));
+}
+.brand-year {
+  font-weight: 300;
+  opacity: 0.8;
+}
+
+.btn-predict {
+  min-width: 42px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  transition: all 0.15s ease;
+  border: 2px solid transparent;
+}
+.btn-predict:not(.disabled):hover {
+  transform: scale(1.2);
+  border-color: #ffc107;
+  z-index: 2;
+}
+.btn-predict.active.selected {
+  border: 2px solid #ffc107;
+  box-shadow: 0 0 12px rgba(255, 193, 7, 0.7);
+  transform: scale(1.1);
+  z-index: 3;
+}
+
+.w-40 { width: 38%; }
+
+.match-row td {
+  vertical-align: middle;
+  padding: 10px 8px;
+}
+
+.nav-pills .nav-link {
+  font-size: 0.82rem;
+  padding: 5px 14px;
+  border-radius: 20px;
+  background: #1a1f2e;
+  color: #8a93a8;
+  border: 1px solid transparent;
+}
+.nav-pills .nav-link.active {
+  background: #ffc107;
+  color: #000;
+  font-weight: 700;
+  border-color: #ffc107;
+}
+
+.card {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.table > :not(caption) > * > * {
+  border-bottom-color: rgba(255,255,255,0.04);
+}
+
+.first-place {
+  --bs-table-bg: rgba(255, 193, 7, 0.15) !important;
+  border-left: 4px solid #ffc107;
+  box-shadow: inset 0 0 30px rgba(255, 193, 7, 0.05);
+}
+
+.second-place {
+  --bs-table-bg: rgba(173, 216, 230, 0.08) !important;
+  border-left: 3px solid #adb5bd;
+}
+.third-place {
+  --bs-table-bg: rgba(205, 127, 50, 0.08) !important;
+  border-left: 3px solid #cd7f32;
+}
+
+.progress {
+  background: rgba(255,255,255,0.08);
+  border-radius: 10px;
+}
+.progress-bar {
+  border-radius: 10px;
+}
+
+.toast {
+  border-radius: 12px;
+  font-size: 0.9rem;
+}

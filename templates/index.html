@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-3">
+  <h4 class="mb-0 text-white">Pronósticos</h4>
+</div>
+
+{% if sorted_days|length == 0 %}
+<div class="text-center py-5 text-muted">
+  <p>No hay partidos cargados todavía. El admin debe importarlos o añadirlos.</p>
+</div>
+{% endif %}
+
+<ul class="nav nav-pills mb-3 gap-1 overflow-auto flex-nowrap" id="dayTabs" role="tablist">
+  {% for day in sorted_days %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if day == active_day %}active{% endif %}"
+      id="tab-{{ day }}" data-bs-toggle="tab" data-bs-target="#day-{{ day }}"
+      type="button" role="tab">
+      {{ day[8:10] }}/{{ day[5:7] }}
+    </button>
+  </li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content" id="dayTabContent">
+  {% for day in sorted_days %}
+  <div class="tab-pane fade {% if day == active_day %}show active{% endif %}" id="day-{{ day }}" role="tabpanel">
+    {% set rounds = matches_by_day[day] %}
+    {% for round_key in ROUNDS_ORDER %}
+      {% if round_key in rounds %}
+      {% set matches = rounds[round_key] %}
+      <div class="card mb-3 border-secondary shadow-sm">
+        <div class="card-header bg-secondary bg-opacity-10 py-2">
+          <small class="fw-bold text-muted">{{ ROUNDS_LABEL.get(round_key, round_key) }}</small>
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-dark table-hover mb-0 align-middle">
+            <tbody>
+              {% for m in matches %}
+              {% set user_pred = predictions.get(m.id) %}
+              {% set actual = m.actual %}
+              {% set is_correct = actual and user_pred == actual %}
+              {% set is_wrong = actual and user_pred and user_pred != actual %}
+              <tr class="{% if m.is_blocked %}opacity-50{% endif %}">
+                <td class="text-end fw-medium" style="width:38%">{{ m.home_team }}</td>
+                <td class="text-center" style="width:14%">
+                  {% if m.status == 'played' %}
+                    <span class="badge bg-light text-dark fs-6 px-3 py-1">{{ m.home_score }}-{{ m.away_score }}</span>
+                  {% else %}
+                    <span class="text-muted fw-bold">vs</span>
+                  {% endif %}
+                </td>
+                <td class="fw-medium" style="width:38%">{{ m.away_team }}</td>
+                <td class="text-center" style="width:10%">
+                  {% if m.is_open and not m.is_blocked %}
+                  <div class="btn-group btn-group-sm btn-predict-group" data-match-id="{{ m.id }}">
+                    {% for opt in [('1','1'), ('X','X'), ('2','2')] %}
+                    <button type="button"
+                      class="btn btn-predict {{ 'btn-primary active selected' if user_pred == opt[0] else 'btn-outline-light' }}"
+                      data-value="{{ opt[0] }}"
+                      onclick="predict({{ m.id }}, '{{ opt[0] }}', this)">
+                      {{ opt[1] }}
+                    </button>
+                    {% endfor %}
+                  </div>
+                  {% elif m.is_blocked %}
+                    <span class="text-muted small" title="Espera a que termine la jornada actual">🔒</span>
+                  {% elif m.status == 'pending' %}
+                    <span class="text-danger small">⏰ Cerrado</span>
+                  {% elif m.status == 'played' %}
+                    {% if user_pred %}
+                      {% if is_correct %}
+                        <span class="text-success fw-bold fs-5">✅</span>
+                      {% else %}
+                        <span class="text-danger fw-bold fs-5">❌</span>
+                      {% endif %}
+                      <div><small class="{% if is_correct %}text-success{% else %}text-danger{% endif %}">({{ user_pred }})</small></div>
+                    {% else %}
+                      <span class="text-muted small">—</span>
+                    {% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
+
+<script>
+function predict(matchId, value, btn) {
+  const group = btn.closest('.btn-predict-group');
+  const prev = group.querySelector('.active');
+  if (prev) { prev.classList.remove('active', 'selected', 'btn-primary'); prev.classList.add('btn-outline-light'); }
+
+  btn.classList.remove('btn-outline-light');
+  btn.classList.add('btn-primary', 'active', 'selected');
+
+  const formData = new FormData();
+  formData.append('prediction', value);
+
+  fetch('/api/predict/' + matchId, {
+    method: 'POST', body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    showToast(data.message, data.success ? 'success' : 'warning');
+    if (!data.success) {
+      btn.classList.remove('btn-primary', 'active', 'selected');
+      btn.classList.add('btn-outline-light');
+    }
+  })
+  .catch(() => showToast('Error al guardar', 'danger'));
+}
+
+function showToast(msg, type) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast align-items-center text-bg-' + type + ' border-0 show';
+  toast.innerHTML = '<div class="d-flex"><div class="toast-body fw-bold">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+  container.appendChild(toast);
+  setTimeout(() => { toast.remove(); }, 3000);
+}
+</script>
+{% endblock %}

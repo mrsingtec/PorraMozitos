@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3 text-white">Clasificación de grupos</h4>
+
+{% for g, teams in standings.items() %}
+  {% set ns = namespace(is_spain=false) %}
+  {% for t in teams %}{% if t.team in ('Spain', 'España') %}{% set ns.is_spain = true %}{% endif %}{% endfor %}
+  <div class="card mb-3 border-secondary shadow-sm {% if ns.is_spain %}border-warning border-2{% endif %}">
+    <div class="card-header {% if ns.is_spain %}bg-warning bg-opacity-25 text-warning{% else %}bg-secondary bg-opacity-10{% endif %} py-2">
+      <strong>{{ g.replace('GROUP_', 'Grupo ') }}</strong>
+      {% if ns.is_spain %}<span class="badge bg-warning text-dark ms-2">🌟 ESPAÑA</span>{% endif %}
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-dark table-hover mb-0 align-middle small">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Equipo</th>
+            <th class="text-center">PJ</th>
+            <th class="text-center">G</th>
+            <th class="text-center">E</th>
+            <th class="text-center">P</th>
+            <th class="text-center">GF</th>
+            <th class="text-center">GC</th>
+            <th class="text-center">DG</th>
+            <th class="text-center fw-bold">Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in teams %}
+          <tr class="{% if t.team in ('Spain', 'España') %}table-active fw-bold{% endif %}">
+            <td class="text-muted">{{ loop.index }}</td>
+            <td>{{ t.team }}</td>
+            <td class="text-center">{{ t.pld }}</td>
+            <td class="text-center text-success">{{ t.w }}</td>
+            <td class="text-center text-warning">{{ t.d }}</td>
+            <td class="text-center text-danger">{{ t.l }}</td>
+            <td class="text-center">{{ t.gf }}</td>
+            <td class="text-center">{{ t.ga }}</td>
+            <td class="text-center {% if t.gd > 0 %}text-success{% elif t.gd < 0 %}text-danger{% endif %}">{{ t.gd }}</td>
+            <td class="text-center fw-bold"><span class="badge bg-warning text-dark">{{ t.pts }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endfor %}
+
+<a href="{{ url_for('index') }}" class="btn btn-outline-secondary mt-2">
+  ← Volver a partidos
+</a>
+{% endblock %}

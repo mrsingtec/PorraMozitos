@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-gear-fill text-warning"></i> Administración</h4>
+</div>
+
+<div class="row g-3">
+  <!-- Columna izquierda: Usuarios + Importar -->
+  <div class="col-lg-5">
+    <div class="card border-warning mb-3">
+      <div class="card-header bg-warning bg-opacity-10 text-warning fw-bold">
+        <i class="bi bi-people-fill"></i> Puntos iniciales de usuarios
+      </div>
+      <div class="card-body">
+        <p class="small text-muted">Como el mundial ya empezó, asigna puntos extra a los usuarios por los partidos que no pudieron pronosticar.</p>
+        <table class="table table-dark table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th class="text-center">Admin</th>
+              <th class="text-center">Puntos extra</th>
+              <th class="text-center"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td>{{ u.username }}</td>
+              <td class="text-center">
+                {% if u.id != current_user.id %}
+                <form method="POST" action="{{ url_for('toggle_admin', user_id=u.id) }}">
+                  <button type="submit" class="btn btn-sm {% if u.is_admin %}btn-warning{% else %}btn-outline-secondary{% endif %}">
+                    {% if u.is_admin %}Admin{% else %}Hacer admin{% endif %}
+                  </button>
+                </form>
+                {% else %}
+                <span class="badge bg-warning text-dark">Admin</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <form method="POST" action="{{ url_for('set_user_bonus') }}" class="d-flex justify-content-center gap-1">
+                  <input type="hidden" name="user_id" value="{{ u.id }}">
+                  <input type="number" name="bonus_points" value="{{ u.bonus_points or 0 }}"
+                    class="form-control form-control-sm text-center" min="0" style="width:60px">
+                  <button type="submit" class="btn btn-warning btn-sm">OK</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card border-info">
+      <div class="card-header bg-info bg-opacity-10 text-info fw-bold">
+        <i class="bi bi-cloud-download"></i> Importar partidos
+      </div>
+      <div class="card-body">
+        <p class="small text-muted">Carga los partidos del Mundial desde la API de football-data.org.</p>
+        <form method="POST" action="{{ url_for('admin_import_matches') }}">
+          <div class="mb-2">
+            <label class="form-label small">ID de competición (2000 = Mundial 2026)</label>
+            <input type="text" name="competition_id" class="form-control" value="2000">
+          </div>
+          <button type="submit" class="btn btn-info w-100">
+            <i class="bi bi-cloud-download"></i> Importar partidos
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Columna derecha: Lista de partidos -->
+  <div class="col-lg-7">
+    <div class="card border-warning">
+      <div class="card-header bg-warning bg-opacity-10 text-warning fw-bold">
+        <i class="bi bi-list"></i> Partidos <span class="badge bg-secondary">{{ matches|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if matches|length == 0 %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+          <p class="mt-2 mb-0">No hay partidos. Importa desde la API o reinicia la app con la API key.</p>
+        </div>
+        {% else %}
+        <div style="max-height:500px;overflow-y:auto">
+          <table class="table table-dark table-hover mb-0 align-middle small">
+            <thead class="table-secondary sticky-top">
+              <tr>
+                <th>Partido</th>
+                <th>Fecha</th>
+                <th class="text-center">Resultado</th>
+                <th class="text-center"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for match in matches %}
+              <tr>
+                <td>{{ match.home_team }} vs {{ match.away_team }}</td>
+                <td class="small">{{ match.match_date[:10] }}</td>
+                <td class="text-center">
+                  {% if match.status == 'played' %}
+                    <span class="badge bg-light text-dark">{{ match.home_score }} - {{ match.away_score }}</span>
+                  {% else %}
+                    <span class="badge bg-secondary">—</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">
+                  <button type="button" class="btn btn-outline-info btn-sm py-0" data-bs-toggle="modal" data-bs-target="#resultModal{{ match.id }}">
+                    ✏️
+                  </button>
+                  <form method="POST" action="{{ url_for('delete_match', match_id=match.id) }}" class="d-inline" onsubmit="return confirm('¿Eliminar?')">
+                    <button type="submit" class="btn btn-outline-danger btn-sm py-0">🗑️</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modales para editar resultado -->
+{% for match in matches %}
+<div class="modal fade" id="resultModal{{ match.id }}" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content bg-dark">
+      <form method="POST" action="{{ url_for('set_result', match_id=match.id) }}">
+        <div class="modal-header">
+          <h6 class="modal-title">{{ match.home_team }} vs {{ match.away_team }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% if match.status == 'played' %}
+          <p class="text-muted small">Actual: {{ match.home_score }} - {{ match.away_score }}</p>
+          {% endif %}
+          <div class="row g-2">
+            <div class="col-5">
+              <input type="number" name="home_score" class="form-control" placeholder="Local" min="0"
+                value="{{ match.home_score if match.home_score is not none else '' }}" required>
+            </div>
+            <div class="col-2 text-center pt-2">-</div>
+            <div class="col-5">
+              <input type="number" name="away_score" class="form-control" placeholder="Visit." min="0"
+                value="{{ match.away_score if match.away_score is not none else '' }}" required>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-warning btn-sm w-100">Guardar resultado</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<a href="{{ url_for('index') }}" class="btn btn-outline-secondary mt-3">
+  <i class="bi bi-arrow-left"></i> Volver a partidos
+</a>
+{% endblock %}

@@ -113,16 +113,16 @@ def parse_date(date_str):
     return datetime.strptime(date_str, "%Y-%m-%d %H:%M")
 
 
-def get_day_deadline(day_str):
-    """Deadline for a day: 30min before first match (Spanish time)."""
-    with get_db() as db:
-        first = db.execute(
-            "SELECT match_date FROM matches WHERE substr(match_date,1,10) = ? ORDER BY match_date ASC LIMIT 1",
-            (day_str,)
-        ).fetchone()
-    if not first:
-        return None
-    return SPAIN_TZ.localize(parse_date(first["match_date"]) - timedelta(minutes=30))
+def get_unlock_time(day_str):
+    """Matches of a day unlock at 23:30 the previous day (Spanish time)."""
+    day_dt = parse_date(day_str + " 00:00")
+    unlock = day_dt - timedelta(days=1) + timedelta(hours=23, minutes=30)
+    return SPAIN_TZ.localize(unlock)
+
+
+def get_close_time(match_date):
+    """A match closes 30 min before kickoff (Spanish time)."""
+    return SPAIN_TZ.localize(parse_date(match_date)) - timedelta(minutes=30)
 
 
 def match_result(home_score, away_score):
@@ -426,7 +426,7 @@ TEAM_TRANSLATIONS = {
 
 
 def get_open_date():
-    """Return the first calendar date whose deadline hasn't passed."""
+    """Return the first date whose unlock_time (23:30 prev day) hasn't passed."""
     with get_db() as db:
         dates = db.execute(
             "SELECT DISTINCT substr(match_date,1,10) as d FROM matches ORDER BY d"
@@ -438,10 +438,9 @@ def get_open_date():
     now = now_spain()
 
     for d in dates:
-        day = d["d"]
-        deadline = get_day_deadline(day)
-        if not deadline or now < deadline:
-            return day
+        unlock = get_unlock_time(d["d"])
+        if now < unlock:
+            return d["d"]
 
     return dates[-1]["d"]
 
@@ -450,7 +449,6 @@ def get_open_date():
 @login_required
 def index():
     now = now_spain()
-    open_date = get_open_date()
     today_str = now.strftime("%Y-%m-%d")
 
     with get_db() as db:
@@ -469,13 +467,16 @@ def index():
     matches_by_day = {}
     for m in rows:
         match_day = m["match_date"][:10]
-        is_future_day = open_date is not None and match_day > open_date
-        is_open = (m["status"] == "pending") and not is_future_day
+        unlock_time = get_unlock_time(match_day)
+        close_time = get_close_time(m["match_date"])
 
-        # will set deadline_dt below once we know day deadlines
+        is_blocked = now < unlock_time
+        is_open = (m["status"] == "pending") and not is_blocked and (now < close_time)
+
         match_dict = dict(m)
         match_dict["is_open"] = is_open
-        match_dict["is_blocked"] = is_future_day
+        match_dict["is_blocked"] = is_blocked
+        match_dict["close_time"] = close_time.isoformat()
         match_dict["actual"] = match_result(m["home_score"], m["away_score"])
 
         if match_day not in matches_by_day:
@@ -487,36 +488,12 @@ def index():
 
     sorted_days = sorted(matches_by_day.keys())
 
-    # Compute day deadlines and set is_open per match
-    day_deadlines = {}
-    for day in sorted_days:
-        dl = get_day_deadline(day)
-        if dl:
-            day_deadlines[day] = dl
-
-    for day, rounds in matches_by_day.items():
-        deadline = day_deadlines.get(day)
-        for r, matches in rounds.items():
-            for m in matches:
-                m["deadline_dt"] = deadline
-                if deadline:
-                    m["is_open"] = m["is_open"] and (now < deadline)
-
     # Determine which tab to show as active
     active_day = None
     if today_str in matches_by_day:
         active_day = today_str
-    elif open_date and open_date in matches_by_day:
-        active_day = open_date
     elif sorted_days:
         active_day = sorted_days[0]
-
-    # Next deadline for countdown (the open date's deadline)
-    next_deadline = None
-    if open_date and open_date in day_deadlines:
-        dl = day_deadlines[open_date]
-        if dl > now:
-            next_deadline = dl.isoformat()
 
     return render_template(
         "index.html",
@@ -527,7 +504,6 @@ def index():
         match_result=match_result,
         ROUNDS_LABEL=ROUNDS_LABEL,
         ROUNDS_ORDER=ROUNDS_ORDER,
-        next_deadline=next_deadline,
     )
 
 
@@ -552,9 +528,12 @@ def _do_predict(match_id, prediction):
             return {"success": False, "message": "Partido no encontrado"}
 
         day = match["match_date"][:10]
-        deadline = get_day_deadline(day)
+        unlock_time = get_unlock_time(day)
+        close_time = get_close_time(match["match_date"])
 
-        if not deadline or now > deadline:
+        if now < unlock_time:
+            return {"success": False, "message": "Aún no está disponible"}
+        if now > close_time:
             return {"success": False, "message": "No has tenido tiempo llevando Inditex palante... ⏰"}
 
         db.execute(

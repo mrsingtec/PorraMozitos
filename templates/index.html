@@ -25,12 +25,6 @@
   {% endfor %}
 </ul>
 
-{% if next_deadline %}
-<div id="countdown-bar" class="text-center py-1 mb-2 rounded" style="background:#1a1a2e;border:1px solid #e94560">
-  <span class="text-white-50 small">Tiempo para el cierre:</span>
-  <span id="countdown" class="fw-bold text-warning" style="font-variant-numeric:tabular-nums">--:--:--</span>
-</div>
-{% endif %}
 
 <div class="tab-content" id="dayTabContent">
   {% for day in sorted_days %}
@@ -141,31 +135,5 @@ function showToast(msg, type) {
 
 // Auto-refresh cada 30s para ver resultados actualizados
 setTimeout(() => location.reload(), 30000);
-
-// Countdown
-{% if next_deadline %}
-(function() {
-  const deadline = new Date('{{ next_deadline }}').getTime();
-  const el = document.getElementById('countdown');
-  if (!el) return;
-  function tick() {
-    const diff = deadline - Date.now();
-    if (diff <= 0) {
-      el.textContent = '00:00:00';
-      el.className = 'fw-bold text-danger';
-      return;
-    }
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    el.textContent =
-      String(h).padStart(2, '0') + ':' +
-      String(m).padStart(2, '0') + ':' +
-      String(s).padStart(2, '0');
-  }
-  tick();
-  setInterval(tick, 1000);
-})();
-{% endif %}
 </script>
 {% endblock %}

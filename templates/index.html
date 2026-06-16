@@ -67,9 +67,9 @@
                     </button>
                     {% endfor %}
                   </div>
+                  <div><small class="text-warning countdown-close" data-close="{{ m.close_time }}">--:--:--</small></div>
                   {% elif m.is_blocked %}
-                    <span class="text-muted small">🔒</span>
-                    <div><small class="text-info countdown-lock" data-unlock="{{ m.unlock_time }}">--:--:--</small></div>
+                    <span class="text-muted small" title="Se desbloquea a las 23:30 del día anterior">🔒</span>
                   {% elif m.status == 'pending' %}
                     <span class="text-danger small">⏰ Cerrado</span>
                   {% elif m.status == 'played' %}
@@ -137,18 +137,18 @@ function showToast(msg, type) {
 // Auto-refresh cada 30s para ver resultados actualizados
 setTimeout(() => location.reload(), 30000);
 
-// Countdowns de desbloqueo para partidos bloqueados
+// Countdowns de cierre para partidos abiertos
 (function() {
-  const els = document.querySelectorAll('.countdown-lock');
+  const els = document.querySelectorAll('.countdown-close');
   if (!els.length) return;
   function tickAll() {
     const now = Date.now();
     els.forEach(el => {
-      const unlock = new Date(el.dataset.unlock).getTime();
-      const diff = unlock - now;
+      const close = new Date(el.dataset.close).getTime();
+      const diff = close - now;
       if (diff <= 0) {
         el.textContent = '00:00';
-        el.className = 'text-success small countdown-lock';
+        el.className = 'text-danger small countdown-close';
         return;
       }
       const h = Math.floor(diff / 3600000);

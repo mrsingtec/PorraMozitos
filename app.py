@@ -114,7 +114,7 @@ def parse_date(date_str):
 
 
 def get_day_deadline(day_str):
-    """Deadline for a day: 1h before first match (Spanish time)."""
+    """Deadline for a day: 30min before first match (Spanish time)."""
     with get_db() as db:
         first = db.execute(
             "SELECT match_date FROM matches WHERE substr(match_date,1,10) = ? ORDER BY match_date ASC LIMIT 1",
@@ -122,9 +122,7 @@ def get_day_deadline(day_str):
         ).fetchone()
     if not first:
         return None
-    utc_dt = datetime.strptime(first["match_date"], "%Y-%m-%d %H:%M").replace(tzinfo=pytz.UTC)
-    spain_dt = utc_dt.astimezone(SPAIN_TZ)
-    return spain_dt - timedelta(hours=1)
+    return SPAIN_TZ.localize(parse_date(first["match_date"]) - timedelta(minutes=30))
 
 
 def match_result(home_score, away_score):
@@ -212,10 +210,10 @@ def import_matches_from_api(competition_id="2000"):
                 continue
 
             utc_date = m.get("utcDate", "")
-            match_date = utc_date[:16].replace("T", " ") if utc_date else ""
-
-            if not match_date:
+            if not utc_date:
                 continue
+            utc_dt = datetime.strptime(utc_date[:16], "%Y-%m-%dT%H:%M").replace(tzinfo=pytz.UTC)
+            match_date = utc_dt.astimezone(SPAIN_TZ).strftime("%Y-%m-%d %H:%M")
 
             # Deadline computed dynamically (see get_day_deadline); store placeholder
             deadline = match_date

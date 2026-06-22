@@ -9,6 +9,9 @@ from flask import (Flask, flash, redirect, render_template, request,
 from flask_login import (LoginManager, UserMixin, current_user, login_required,
                          login_user, logout_user)
 from werkzeug.security import check_password_hash, generate_password_hash
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cambia-esta-clave-en-produccion")
@@ -196,7 +199,7 @@ def import_matches_from_api(competition_id="2000"):
         return False, "No se encontraron partidos para esta competición."
 
     added = 0
-    skipped = 0
+    updated = 0
 
     with get_db() as db:
         for m in matches:
@@ -218,17 +221,6 @@ def import_matches_from_api(competition_id="2000"):
             # Deadline computed dynamically (see get_day_deadline); store placeholder
             deadline = match_date
 
-            # Check for existing match (by API match id to avoid dupes)
-            api_id = m.get("id")
-            if api_id:
-                existing = db.execute(
-                    "SELECT id FROM matches WHERE home_team = ? AND away_team = ? AND match_date = ?",
-                    (home_team, away_team, match_date),
-                ).fetchone()
-                if existing:
-                    skipped += 1
-                    continue
-
             # Group info
             group_name = m.get("group") or ""
             matchday = m.get("matchday")
@@ -241,18 +233,44 @@ def import_matches_from_api(competition_id="2000"):
 
             status = "played" if home_score is not None else "pending"
 
-            db.execute(
-                """INSERT INTO matches (round, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (round_name, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday),
-            )
-            added += 1
+            # Check for existing match by home_team, away_team and round (unique per tournament stage)
+            existing = db.execute(
+                "SELECT id, home_team, away_team, home_score, away_score, status FROM matches WHERE home_team = ? AND away_team = ? AND round = ?",
+                (home_team, away_team, round_name),
+            ).fetchone()
+            if existing:
+                # UPDATE existing match: results, teams, round info
+                # Only update scores if API has them (don't overwrite manual results with null)
+                final_home = home_score if home_score is not None else existing["home_score"]
+                final_away = away_score if away_score is not None else existing["away_score"]
+                final_status = status if home_score is not None else existing["status"]
+                db.execute(
+                    """UPDATE matches
+                       SET round = ?, home_team = ?, away_team = ?,
+                           home_score = ?, away_score = ?, status = ?,
+                           group_name = ?, matchday = ?
+                       WHERE id = ?""",
+                    (round_name, home_team, away_team,
+                     final_home, final_away, final_status,
+                     group_name, matchday, existing["id"]),
+                )
+                updated += 1
+            else:
+                db.execute(
+                    """INSERT INTO matches (round, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (round_name, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday),
+                )
+                added += 1
 
         db.commit()
 
-    msg = f"Importados {added} partidos nuevos"
-    if skipped:
-        msg += f" ({skipped} ya existían)"
+    parts = []
+    if added:
+        parts.append(f"{added} nuevos")
+    if updated:
+        parts.append(f"{updated} actualizados")
+    msg = "Importación completada: " + ", ".join(parts) if parts else "Sin cambios"
     return True, msg
 
 
@@ -437,9 +455,23 @@ def get_open_date():
 
     now = now_spain()
 
-    for d in dates:
+    # Check which days have all matches played (early unlock)
+    with get_db() as db:
+        fully_played = set()
+        for dr in dates:
+            pend = db.execute(
+                "SELECT COUNT(*) as c FROM matches WHERE substr(match_date,1,10)=? AND status='pending'",
+                (dr["d"],)
+            ).fetchone()["c"]
+            if pend == 0:
+                fully_played.add(dr["d"])
+
+    for i, d in enumerate(dates):
         unlock = get_unlock_time(d["d"])
-        if now < unlock:
+        # Early unlock if all previous dates are fully played
+        prev_days = [dates[j]["d"] for j in range(i)]
+        prev_all_played = all(pd in fully_played for pd in prev_days) if prev_days else False
+        if now < unlock and not prev_all_played:
             return d["d"]
 
     return dates[-1]["d"]
@@ -464,13 +496,30 @@ def index():
             ).fetchall()
         }
 
+    # Pre-compute which days have all matches played (early unlock)
+    with get_db() as db:
+        all_day_rows = db.execute(
+            "SELECT DISTINCT substr(match_date,1,10) as d FROM matches ORDER BY d"
+        ).fetchall()
+    days_fully_played = set()
+    for dr in all_day_rows:
+        pend = db.execute(
+            "SELECT COUNT(*) as c FROM matches WHERE substr(match_date,1,10)=? AND status='pending'",
+            (dr["d"],)
+        ).fetchone()["c"]
+        if pend == 0:
+            days_fully_played.add(dr["d"])
+
     matches_by_day = {}
     for m in rows:
         match_day = m["match_date"][:10]
         unlock_time = get_unlock_time(match_day)
         close_time = get_close_time(m["match_date"])
 
-        is_blocked = now < unlock_time
+        # Unlocked if time passed OR all previous days fully played
+        prev_days = [d for d in days_fully_played | {match_day} if d < match_day]
+        prev_all_played = all(d in days_fully_played for d in prev_days) if prev_days else False
+        is_blocked = (now < unlock_time) and not prev_all_played
         is_open = (m["status"] == "pending") and not is_blocked and (now < close_time)
 
         match_dict = dict(m)
@@ -532,7 +581,13 @@ def _do_predict(match_id, prediction):
         unlock_time = get_unlock_time(day)
         close_time = get_close_time(match["match_date"])
 
-        if now < unlock_time:
+        # Early unlock if all previous days' matches are fully played
+        prev_pending = db.execute(
+            "SELECT 1 FROM matches WHERE substr(match_date,1,10) < ? AND status='pending' LIMIT 1",
+            (day,)
+        ).fetchone()
+        is_blocked = (now < unlock_time) and (prev_pending is not None)
+        if is_blocked:
             return {"success": False, "message": "Aún no está disponible"}
         if now > close_time:
             return {"success": False, "message": "No has tenido tiempo llevando Inditex palante... ⏰"}
@@ -644,6 +699,73 @@ def admin_panel():
     )
 
 
+@app.route("/admin/predictions")
+@login_required
+@admin_required
+def admin_predictions():
+    with get_db() as db:
+        users = db.execute(
+            "SELECT id, username, COALESCE(bonus_points,0) as bonus_points FROM users ORDER BY username ASC"
+        ).fetchall()
+
+        matches = db.execute(
+            "SELECT * FROM matches ORDER BY match_date ASC, id ASC"
+        ).fetchall()
+
+        predictions = db.execute(
+            """SELECT p.user_id, p.match_id, p.prediction
+               FROM predictions p
+               ORDER BY p.user_id, p.match_id"""
+        ).fetchall()
+
+    pred_map = {}
+    for p in predictions:
+        pred_map[(p["user_id"], p["match_id"])] = p["prediction"]
+
+    # Group matches by round for display
+    matches_by_round = {}
+    for m in matches:
+        r = m["round"]
+        if r not in matches_by_round:
+            matches_by_round[r] = []
+        matches_by_round[r].append(dict(m))
+
+    # Compute correct predictions per user and per match
+    user_correct = {}
+    for u in users:
+        correct = 0
+        for m in matches:
+            actual = match_result(m["home_score"], m["away_score"])
+            p = pred_map.get((u["id"], m["id"]))
+            if actual and p == actual:
+                correct += 1
+        user_correct[u["id"]] = correct
+
+    # Compute correct predictions per match (how many users got it right)
+    match_correct = {}
+    for m in matches:
+        count = 0
+        actual = match_result(m["home_score"], m["away_score"])
+        if actual:
+            for u in users:
+                p = pred_map.get((u["id"], m["id"]))
+                if p == actual:
+                    count += 1
+        match_correct[m["id"]] = count
+
+    return render_template(
+        "admin_predictions.html",
+        users=users,
+        matches_by_round=matches_by_round,
+        ROUNDS_LABEL=ROUNDS_LABEL,
+        ROUNDS_ORDER=ROUNDS_ORDER,
+        pred_map=pred_map,
+        match_result=match_result,
+        user_correct=user_correct,
+        match_correct=match_correct,
+    )
+
+
 @app.route("/admin/user-bonus", methods=["POST"])
 @login_required
 @admin_required
@@ -725,6 +847,15 @@ def api_set_result(match_id):
         db.commit()
 
     return {"success": True, "message": "Resultado actualizado ✅"}
+
+
+@app.route("/api/refresh-results", methods=["POST"])
+@login_required
+def api_refresh_results():
+    if not FOOTBALL_API_KEY:
+        return {"success": False, "message": "No hay API key configurada"}
+    success, msg = import_matches_from_api("2000")
+    return {"success": success, "message": msg}
 
 
 @app.route("/admin/matches/<int:match_id>/delete", methods=["POST"])

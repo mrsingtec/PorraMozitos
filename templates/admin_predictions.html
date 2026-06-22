@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-eye-fill text-warning"></i> Pronósticos de todos los porreros</h4>
+  <a href="{{ url_for('admin_panel') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i> Admin
+  </a>
+</div>
+
+{% if not matches_by_round %}
+<div class="text-center py-5 text-muted">
+  <p>No hay partidos cargados.</p>
+</div>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-dark table-bordered align-middle small mb-0">
+    <thead class="table-secondary">
+      <tr>
+        <th style="min-width:200px">Partido</th>
+        <th style="min-width:90px">Fecha</th>
+        <th class="text-center" style="width:60px">Res.</th>
+        {% for u in users %}
+        <th class="text-center" style="min-width:50px">{{ u.username }}</th>
+        {% endfor %}
+        <th class="text-center" style="width:60px">Aciertos</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for round_key in ROUNDS_ORDER %}
+        {% if round_key in matches_by_round %}
+        {% set round_matches = matches_by_round[round_key] %}
+        <tr class="table-warning">
+          <td colspan="{{ 4 + users|length }}" class="fw-bold text-dark">
+            {{ ROUNDS_LABEL.get(round_key, round_key) }}
+          </td>
+        </tr>
+        {% for m in round_matches %}
+        {% set actual = match_result(m.home_score, m.away_score) %}
+        <tr>
+          <td>{{ m.home_team }} vs {{ m.away_team }}</td>
+          <td class="text-nowrap">{{ m.match_date[:10] }}</td>
+          <td class="text-center">
+            {% if m.status == 'played' %}
+              <strong>{{ m.home_score }}-{{ m.away_score }}</strong>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          {% for u in users %}
+            {% set p = pred_map.get((u.id, m.id)) %}
+            <td class="text-center
+              {%- if actual and p == actual %} table-success
+              {%- elif actual and p and p != actual %} table-danger
+              {%- elif p %} table-secondary{% endif %}">
+              {% if p %}
+                {{ p }}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          {% endfor %}
+          <td class="text-center">
+            <span class="badge bg-info text-dark">{{ match_correct.get(m.id, 0) }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="fw-bold" style="background:#1a237e;color:#fff;outline:3px solid #ffd600;outline-offset:-2px">
+        <td colspan="3" class="text-uppercase" style="font-size:0.85rem;letter-spacing:0.5px">🏆 Totales</td>
+        {% for u in users %}
+        {% set total = user_correct.get(u.id, 0) + u.bonus_points %}
+        <td class="text-center align-middle" style="padding:0.5rem 0.3rem">
+          <span style="font-size:1.1rem">{{ total }}</span>
+          {% if u.bonus_points > 0 %}
+          <br><small style="color:#90caf9;font-size:0.7rem">+{{ u.bonus_points }} extra</small>
+          {% endif %}
+        </td>
+        {% endfor %}
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<style>
+.table td, .table th { white-space: nowrap; padding: 0.25rem 0.4rem; }
+.table-success { background-color: #2e7d32 !important; color: #fff !important; }
+.table-danger { background-color: #c62828 !important; color: #fff !important; }
+.table-secondary { background-color: #37474f !important; }
+</style>
+{% endif %}
+
+<a href="{{ url_for('admin_panel') }}" class="btn btn-outline-secondary mt-3">
+  <i class="bi bi-arrow-left"></i> Volver al panel de admin
+</a>
+{% endblock %}

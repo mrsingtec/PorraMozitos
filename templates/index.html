@@ -2,8 +2,8 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0 text-white">Pronósticos</h4>
-  <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()" title="Actualizar resultados">
-    ↻
+  <button class="btn btn-warning" onclick="refreshResults()" title="Actualizar resultados, aciertos y clasificación desde la API" style="border-radius:2rem">
+    <i class="bi bi-arrow-clockwise"></i> Actualizar
   </button>
 </div>
 
@@ -132,6 +132,24 @@ function showToast(msg, type) {
   toast.innerHTML = '<div class="d-flex"><div class="toast-body fw-bold">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
   container.appendChild(toast);
   setTimeout(() => { toast.remove(); }, 3000);
+}
+
+// Refresh: llama a la API para actualizar resultados y luego recarga
+function refreshResults() {
+  const btn = document.querySelector('button[onclick="refreshResults()"]');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Actualizando...';
+  fetch('/api/refresh-results', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      showToast(data.message, data.success ? 'success' : 'warning');
+      setTimeout(() => location.reload(), 1500);
+    })
+    .catch(() => {
+      showToast('Error al actualizar', 'danger');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Actualizar';
+    });
 }
 
 // Auto-refresh cada 30s para ver resultados actualizados

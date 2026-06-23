@@ -617,14 +617,14 @@ def index():
         all_day_rows = db.execute(
             "SELECT DISTINCT substr(match_date,1,10) as d FROM matches ORDER BY d"
         ).fetchall()
-    days_fully_played = set()
-    for dr in all_day_rows:
-        pend = db.execute(
-            "SELECT COUNT(*) as c FROM matches WHERE substr(match_date,1,10)=? AND status='pending'",
-            (dr["d"],)
-        ).fetchone()["c"]
-        if pend == 0:
-            days_fully_played.add(dr["d"])
+        days_fully_played = set()
+        for dr in all_day_rows:
+            pend = db.execute(
+                "SELECT COUNT(*) as c FROM matches WHERE substr(match_date,1,10)=? AND status='pending'",
+                (dr["d"],)
+            ).fetchone()["c"]
+            if pend == 0:
+                days_fully_played.add(dr["d"])
 
     matches_by_day = {}
     for m in rows:

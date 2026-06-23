@@ -626,6 +626,7 @@ def index():
             if pend == 0:
                 days_fully_played.add(dr["d"])
 
+    all_days = [r["d"] for r in all_day_rows]
     matches_by_day = {}
     for m in rows:
         match_day = m["match_date"][:10]
@@ -633,7 +634,7 @@ def index():
         close_time = get_close_time(m["match_date"])
 
         # Unlocked if time passed OR all previous days fully played
-        prev_days = [d for d in days_fully_played | {match_day} if d < match_day]
+        prev_days = [d for d in all_days if d < match_day]
         prev_all_played = all(d in days_fully_played for d in prev_days) if prev_days else False
         is_blocked = (now < unlock_time) and not prev_all_played
         is_open = (m["status"] == "pending") and not is_blocked and (now < close_time)

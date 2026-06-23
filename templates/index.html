@@ -71,7 +71,7 @@
                   {% elif m.is_blocked %}
                     <span class="text-muted small" title="Se desbloquea a las 23:30 del día anterior">🔒</span>
                   {% elif m.status == 'pending' %}
-                    <span class="text-danger small">⏰ Cerrado</span>
+                    <span class="text-muted small" title="Plazo cerrado">🔒</span>
                   {% elif m.status == 'played' %}
                     {% if user_pred %}
                       {% if is_correct %}

@@ -1,4 +1,3 @@
-import sqlite3
 import os
 from datetime import datetime, timedelta
 from functools import wraps
@@ -7,7 +6,7 @@ import pytz
 from flask import (Flask, flash, redirect, render_template, request,
                    session, url_for)
 from flask_login import (LoginManager, UserMixin, current_user, login_required,
-                         login_user, logout_user)
+                          login_user, logout_user)
 from werkzeug.security import check_password_hash, generate_password_hash
 from dotenv import load_dotenv
 
@@ -17,66 +16,167 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cambia-esta-clave-en-produccion")
 
 SPAIN_TZ = pytz.timezone("Europe/Madrid")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
 DATABASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "porra.db")
+USE_POSTGRES = DATABASE_URL is not None
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import sqlite3
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
 
+class Database:
+    def __init__(self):
+        if USE_POSTGRES:
+            self.conn = psycopg2.connect(DATABASE_URL)
+        else:
+            self.conn = sqlite3.connect(DATABASE)
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA foreign_keys=ON")
+
+    def execute(self, sql, params=None):
+        if USE_POSTGRES:
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(sql.replace("?", "%s"), params or ())
+        else:
+            cur = self.conn.cursor()
+            if params is None:
+                cur.execute(sql)
+            else:
+                cur.execute(sql, params)
+        return cur
+
+    def executescript(self, sql):
+        if USE_POSTGRES:
+            for stmt in sql.replace("\n", " ").split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    self.execute(stmt)
+        else:
+            self.conn.executescript(sql)
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self.commit()
+        self.close()
+
+
 def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return Database()
 
 
 def init_db():
     with get_db() as db:
-        db.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                is_admin INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS matches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                round TEXT NOT NULL,
-                home_team TEXT NOT NULL,
-                away_team TEXT NOT NULL,
-                match_date TEXT NOT NULL,
-                deadline TEXT NOT NULL,
-                home_score INTEGER,
-                away_score INTEGER,
-                status TEXT DEFAULT 'pending',
-                group_name TEXT,
-                matchday INTEGER
-            );
-
-            CREATE TABLE IF NOT EXISTS predictions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                match_id INTEGER NOT NULL,
-                prediction TEXT NOT NULL,
-                created_at TEXT DEFAULT (datetime('now')),
-                FOREIGN KEY (user_id) REFERENCES users(id),
-                FOREIGN KEY (match_id) REFERENCES matches(id),
-                UNIQUE(user_id, match_id)
-            );
-        """)
+        if USE_POSTGRES:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    is_admin INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (NOW())
+                )
+            """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS matches (
+                    id SERIAL PRIMARY KEY,
+                    round TEXT NOT NULL,
+                    home_team TEXT NOT NULL,
+                    away_team TEXT NOT NULL,
+                    match_date TEXT NOT NULL,
+                    deadline TEXT NOT NULL,
+                    home_score INTEGER,
+                    away_score INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    group_name TEXT,
+                    matchday INTEGER,
+                    duration TEXT NOT NULL DEFAULT 'REGULAR'
+                )
+            """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    match_id INTEGER NOT NULL,
+                    prediction TEXT NOT NULL,
+                    created_at TEXT DEFAULT (NOW()),
+                    FOREIGN KEY (user_id) REFERENCES users(id),
+                    FOREIGN KEY (match_id) REFERENCES matches(id),
+                    UNIQUE(user_id, match_id)
+                )
+            """)
+        else:
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    is_admin INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    round TEXT NOT NULL,
+                    home_team TEXT NOT NULL,
+                    away_team TEXT NOT NULL,
+                    match_date TEXT NOT NULL,
+                    deadline TEXT NOT NULL,
+                    home_score INTEGER,
+                    away_score INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    group_name TEXT,
+                    matchday INTEGER,
+                    duration TEXT NOT NULL DEFAULT 'REGULAR'
+                );
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    match_id INTEGER NOT NULL,
+                    prediction TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    FOREIGN KEY (user_id) REFERENCES users(id),
+                    FOREIGN KEY (match_id) REFERENCES matches(id),
+                    UNIQUE(user_id, match_id)
+                );
+            """)
 
         # Migrate existing DB – add columns if missing
-        cols = [r["name"] for r in db.execute("PRAGMA table_info(matches)")]
+        if USE_POSTGRES:
+            cols = [r["column_name"] for r in db.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'matches'"
+            )]
+        else:
+            cols = [r["name"] for r in db.execute("PRAGMA table_info(matches)")]
         if "group_name" not in cols:
             db.execute("ALTER TABLE matches ADD COLUMN group_name TEXT")
         if "matchday" not in cols:
             db.execute("ALTER TABLE matches ADD COLUMN matchday INTEGER")
+        if "duration" not in cols:
+            db.execute("ALTER TABLE matches ADD COLUMN duration TEXT NOT NULL DEFAULT 'REGULAR'")
 
-        ucols = [r["name"] for r in db.execute("PRAGMA table_info(users)")]
+        if USE_POSTGRES:
+            ucols = [r["column_name"] for r in db.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'"
+            )]
+        else:
+            ucols = [r["name"] for r in db.execute("PRAGMA table_info(users)")]
         if "bonus_points" not in ucols:
             db.execute("ALTER TABLE users ADD COLUMN bonus_points INTEGER DEFAULT 0")
 
@@ -138,6 +238,18 @@ def match_result(home_score, away_score):
     return "2"
 
 
+def match_result_90(match_row):
+    """Return result (1/X/2) based on 90-minute regulation only.
+    For knockout matches that went to extra time/penalties, result is 'X' (draw)."""
+    hs = match_row["home_score"]
+    aw = match_row["away_score"]
+    if hs is None or aw is None:
+        return None
+    if match_row["round"] in KNOCKOUT_ROUNDS and match_row["duration"] != "REGULAR":
+        return "X"
+    return match_result(hs, aw)
+
+
 """
 Traducción de rondas
 """
@@ -159,6 +271,8 @@ ROUNDS_LABEL = {
     "tercer_puesto": "Tercer puesto",
     "final": "Final",
 }
+
+KNOCKOUT_ROUNDS = {"octavos", "cuartos", "semifinal", "final", "tercer_puesto", "dieciseisavos"}
 
 
 # ──────────────────────────── API Config ──────────────────────────────
@@ -230,12 +344,13 @@ def import_matches_from_api(competition_id="2000"):
             ft = score.get("fullTime") or {}
             home_score = ft.get("home")
             away_score = ft.get("away")
+            duration = score.get("duration", "REGULAR")
 
             status = "played" if home_score is not None else "pending"
 
             # Check for existing match by home_team, away_team and round (unique per tournament stage)
             existing = db.execute(
-                "SELECT id, home_team, away_team, home_score, away_score, status FROM matches WHERE home_team = ? AND away_team = ? AND round = ?",
+                "SELECT id, home_team, away_team, home_score, away_score, status, duration FROM matches WHERE home_team = ? AND away_team = ? AND round = ?",
                 (home_team, away_team, round_name),
             ).fetchone()
             if existing:
@@ -244,22 +359,23 @@ def import_matches_from_api(competition_id="2000"):
                 final_home = home_score if home_score is not None else existing["home_score"]
                 final_away = away_score if away_score is not None else existing["away_score"]
                 final_status = status if home_score is not None else existing["status"]
+                final_duration = duration if home_score is not None else existing["duration"]
                 db.execute(
                     """UPDATE matches
                        SET round = ?, home_team = ?, away_team = ?,
                            home_score = ?, away_score = ?, status = ?,
-                           group_name = ?, matchday = ?
+                           group_name = ?, matchday = ?, duration = ?
                        WHERE id = ?""",
                     (round_name, home_team, away_team,
                      final_home, final_away, final_status,
-                     group_name, matchday, existing["id"]),
+                     group_name, matchday, final_duration, existing["id"]),
                 )
                 updated += 1
             else:
                 db.execute(
-                    """INSERT INTO matches (round, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (round_name, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday),
+                    """INSERT INTO matches (round, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday, duration)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (round_name, home_team, away_team, match_date, deadline, home_score, away_score, status, group_name, matchday, duration),
                 )
                 added += 1
 
@@ -638,7 +754,11 @@ def leaderboard():
         ).fetchall()
 
         played_ids = [m["id"] for m in matches]
-        match_results_map = {m["id"]: match_result(m["home_score"], m["away_score"]) for m in matches}
+        match_data = {}
+        for m in matches:
+            actual = match_result_90(m)
+            pts = 2 if m["round"] in KNOCKOUT_ROUNDS else 1
+            match_data[m["id"]] = {"actual": actual, "pts": pts}
 
     standings = []
     for user in users:
@@ -655,15 +775,17 @@ def leaderboard():
             ).fetchall()
 
         points = bonus
+        correct_count = 0
         for p in preds:
-            actual = match_results_map.get(p["match_id"])
-            if actual and p["prediction"] == actual:
-                points += 1
+            md = match_data.get(p["match_id"])
+            if md and md["actual"] and p["prediction"] == md["actual"]:
+                points += md["pts"]
+                correct_count += 1
 
         standings.append({
             "username": user["username"],
             "points": points,
-            "correct": points - bonus,
+            "correct": correct_count,
             "total": len(played_ids),
             "bonus": bonus,
         })
@@ -730,12 +852,12 @@ def admin_predictions():
             matches_by_round[r] = []
         matches_by_round[r].append(dict(m))
 
-    # Compute correct predictions per user and per match
+    # Compute correct predictions per user and per match (using 90-min rule)
     user_correct = {}
     for u in users:
         correct = 0
         for m in matches:
-            actual = match_result(m["home_score"], m["away_score"])
+            actual = match_result_90(m)
             p = pred_map.get((u["id"], m["id"]))
             if actual and p == actual:
                 correct += 1
@@ -745,7 +867,7 @@ def admin_predictions():
     match_correct = {}
     for m in matches:
         count = 0
-        actual = match_result(m["home_score"], m["away_score"])
+        actual = match_result_90(m)
         if actual:
             for u in users:
                 p = pred_map.get((u["id"], m["id"]))
@@ -760,7 +882,7 @@ def admin_predictions():
         ROUNDS_LABEL=ROUNDS_LABEL,
         ROUNDS_ORDER=ROUNDS_ORDER,
         pred_map=pred_map,
-        match_result=match_result,
+        match_result_90=match_result_90,
         user_correct=user_correct,
         match_correct=match_correct,
     )

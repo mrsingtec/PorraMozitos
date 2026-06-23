@@ -35,7 +35,7 @@
           </td>
         </tr>
         {% for m in round_matches %}
-        {% set actual = match_result(m.home_score, m.away_score) %}
+        {% set actual = match_result_90(m) %}
         <tr>
           <td>{{ m.home_team }} vs {{ m.away_team }}</td>
           <td class="text-nowrap">{{ m.match_date[:10] }}</td>
